@@ -30,10 +30,13 @@ import ornl.pico.PicoException;
  * @author Stacy Prowell (prowellsj@ornl.gov)
  */
 public class PicoHeader implements PicoStructure {
+
     /** The hash of the unencrypted data. */
     public byte[] hash = null;
+
     /** Specify the file offset to the data. */
     public long offset = 0L;
+
     /** The key used to encrypt the data.  The key size is inferred. */
     private byte[] _key = null;
     

@@ -55,6 +55,8 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 	 * Create or replace a Pico file.  If the file exists it will be replaced.
 	 * If it does not exist it is created.  A random key is used.
 	 * 
+     * TODO: May want to add a String parameter that is "rw", "r", etc.
+     * 
 	 * @param filename			The filename.
 	 * @return					The Pico file instance.
 	 * @throws IOException		The file cannot be created.
@@ -70,6 +72,8 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 	 * Create or replace a Pico file.  If the file exists it will be replaced.
 	 * If it does not exist it is created.  A random key is used.
 	 * 
+     * TODO: May want to add a String parameter that is "rw", "r", etc.
+     * 
 	 * @param filename			The filename.
 	 * @return					The Pico file instance.
 	 * @throws IOException		The file cannot be created.
@@ -85,6 +89,8 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 	/**
 	 * Create or replace a Pico file.  If the file exists it will be replaced.
 	 * If it does not exist it is created.
+	 * 
+	 * TODO: May want to add a String parameter that is "rw", "r", etc.
 	 * 
 	 * @param filename			The filename.
 	 * @param key				The key to use to encrypt the file.
@@ -109,6 +115,8 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 	 * Create or replace a Pico file.  If the file exists it will be replaced.
 	 * If it does not exist it is created.
 	 * 
+     * TODO: May want to add a String parameter that is "rw", "r", etc.
+     * 
 	 * @param filename			The filename.
 	 * @param key				The key to use to encrypt the file.
 	 * @return					The Pico file instance.
@@ -125,6 +133,7 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 		if (key.length == 0) {
 			throw new IllegalArgumentException("Encryption key is empty.");
 		}
+		
 		return new PicoFile(new RandomAccessFile(file, "rw"), key);
 	}
 	
@@ -132,6 +141,8 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 	 * Open an existing Pico file for reading and writing.  The file must
 	 * already exist.
 	 * 
+     * TODO: May want to add a String parameter that is "rw", "r", etc.
+     * 
 	 * @param filename			The filename.
 	 * @return					The Pico file instance.
 	 * @throws PicoException	The file format is incorrect.
@@ -149,6 +160,8 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 	 * Open an existing Pico file for reading and writing.  The file must
 	 * already exist.
 	 * 
+     * TODO: May want to add a String parameter that is "rw", "r", etc.
+     * 
 	 * @param file				The file.
 	 * @return					The Pico file instance.
 	 * @throws PicoException	The file format is incorrect.
@@ -209,7 +222,7 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 	
 	/**
 	 * Create a new Pico file instance from the given random access file.  If
-	 * the file exists and it not empty the it is truncated.  If it does not
+	 * the file exists and it is not empty then it is truncated.  If it does not
 	 * exist then it is created.
 	 * 
 	 * @param backing			The random access file.
@@ -229,6 +242,11 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 		_backing.setLength(0L);
 		_head = new PicoHeader();
 		_head.setKey(key);
+		
+		// Now the Header size is fixed since we have the key and know the size of the hash
+		// we will write later.
+		
+		// This actually positions us to _head.offset + 0
 		position(0L);
 	}
 	
@@ -258,6 +276,9 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 		long pos = position();
 		if (_digestvalidto == pos)
 			return;
+		
+		// If I move to an earlier position, write, and move back, the digest will 
+		// remain the same.
 		if (_digestvalidto > pos)
 			_resetDigest();
 		int blocksize = 16384;
@@ -418,6 +439,8 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 
 	/* (non-Javadoc)
 	 * @see java.nio.channels.SeekableByteChannel#position()
+	 * 
+	 * NOTE: The position in the file is 0-based AFTER the header has been skipped.
 	 */
 	@Override
 	public long position() throws IOException {
@@ -426,6 +449,8 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 
 	/* (non-Javadoc)
 	 * @see java.nio.channels.SeekableByteChannel#position(long)
+	 * 
+	 * NOTE: newPosition is 0-based into the encrypted file bytes; this is AFTER the header.
 	 */
 	@Override
 	public SeekableByteChannel position(long newPosition) throws IOException {
@@ -435,10 +460,17 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 
 	/* (non-Javadoc)
 	 * @see java.nio.channels.SeekableByteChannel#size()
+	 * 
+	 * NOTE: This is the size of the file WITHOUT the header being counted.
 	 */
 	@Override
 	public long size() throws IOException {
-		return _backing.length() - _head.offset;
+	    
+	    // size will be negative if nothing has been written or read;
+	    // _backing does not "recognize" the first jump past the header until that happens.
+	    // This just ensures we don't return negative lengths.
+	    long size = _backing.length() - _head.offset;
+	    return (size>=0) ? size : 0;
 	}
 
 	//======================================================================
@@ -464,9 +496,15 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 		// dst.remaining(), at the moment this method is invoked.
 		long _here = position();
 		int remain = dst.remaining();
+		
+		// Temporary storage.
 		byte[] data = new byte[remain];
 		int length = _backing.read(data, 0, remain);
+
 		if (length > 0) {
+		    
+		    // Iterate thru each byte of temporary storage and decrypt those bytes back 
+		    // into the buffer
 			for (int index = 0; index < length; index++) {
 				data[index] = _head.crypt(data[index], index+_here);
 			} // Decrypt all bytes.
@@ -509,41 +547,47 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 
 	/* (non-Javadoc)
 	 * @see java.nio.channels.WritableByteChannel#write(java.nio.ByteBuffer)
+	 * 
+	 * NOTE: Changes the state of src in the normal case, i.e., position = limit.
 	 */
 	@Override
 	public int write(ByteBuffer src) throws IOException {
 		if (src == null) {
 			throw new NullPointerException("The source buffer is null.");
 		}
-		if (src.limit() == 0) {
+		
+		// Is there something to actually write in source.
+		if (src.limit() == 0 || src.remaining() == 0) {
 			throw new IllegalArgumentException(
-					"The source buffer has zero length.");
+					"The source buffer has zero length or zero remaining bytes.");
 		}
+		
 		if (! _open) return -1;
 		
-		// Make an attempt to write up to r bytes to the channel, where
+		// based on the specification _hear is p.
+        long _here = position();
+
+        // Make an attempt to write up to r bytes to the channel, where
 		// r is the number of bytes remaining in the buffer, that is,
 		// src.remaining(), at the moment this method is invoked.
-		// Note that we must be careful not to overwrite the array passed
-		// in.
-		long _here = position();
-		byte[] data = src.array();
-		byte[] encr = new byte[data.length];
-		int length = data.length;
+        // NOTE: not good to use the src.array() since that is the backing array which
+        // reflects the entire buffer and not from p to remaining.
+		byte[] encr = new byte[src.remaining()];
 		
 		// Update the digest to the start of the write.
 		_updateDigest();
-		
-		// Encrypt the data and update the digest.
-		if (length > 0) {
-			for (int index = 0; index < length; index++) {
-				_digest.update(data[index]);
-				_digestvalidto++;
-				encr[index] = _head.crypt(data[index], index+_here);
-			} // Encrypt all bytes.
-			_backing.write(encr);
+
+        // Have we reached source's limit?
+		for (int index=0; src.hasRemaining(); index++) {
+		    // The unencrypted data.
+		    byte b = src.get();
+		    _digest.update(b);
+		    _digestvalidto++;
+		    // encrypt it into the buffer.
+            encr[index] = _head.crypt(b, index+_here);
 		}
-		return length;
+		_backing.write(encr);
+		return encr.length;
 	}
 	
 	/**
@@ -556,9 +600,16 @@ implements WritableByteChannel, ReadableByteChannel, SeekableByteChannel {
 		if (! _open) return;
 		datum &= 0xff;
 		long _here = position();
+		
+		// Are we synced up?
 		if (_here == _digestvalidto) {
+		    
+		    // Yes, digest the byte and move the valid to pointer.
 			_digest.update((byte) datum);
-		}
+			_digestvalidto++;  // JMC: Was missing.
+			
+		}  // Otherwise, advancing of the position will destroy the digest sync.
+		
 		datum = _head.crypt((byte) datum, _here);
 		_backing.write(datum);
 	}

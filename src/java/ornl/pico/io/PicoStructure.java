@@ -89,7 +89,7 @@ public interface PicoStructure {
 	 */
 	static final String HASH = "md5";
 	
-	/** Position of the hash. */
+	/** Position of the hash; the HashCode is of the decrypted bytes. */
 	static final long HASH_OFFSET = OFFSET_OFFSET + OFFSET_LENGTH;
 	
 	/** Length of the hash. */
