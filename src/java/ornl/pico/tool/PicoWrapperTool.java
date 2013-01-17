@@ -10,8 +10,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
 
-import net.lingala.zip4j.core.ZipFile;
-import net.lingala.zip4j.model.FileHeader;
 import ornl.pico.io.PicoInputStream;
 import ornl.pico.io.PicoOutputStream;
 
@@ -174,6 +172,7 @@ public class PicoWrapperTool {
      * @param password
      * @return
      */
+    // FIXME : Broken, missing unzip library
     public boolean processCatalog(byte[] key, String password) {
         String zipfilename;
         boolean result = true;
@@ -200,7 +199,7 @@ public class PicoWrapperTool {
                 }
 
                 // Any one failure signals a complete failure.
-                result &= unzipWrap(new File(zipfilename), picofile, key, password);
+//                result &= unzipWrap(new File(zipfilename), picofile, key, password);
                 
                 count++;
             }
@@ -210,50 +209,6 @@ public class PicoWrapperTool {
             return false;
         }
 
-        return result;
-    }
-
-    /**
-     * 
-     * @param zipfile
-     * @param picofile
-     * @param key
-     * @param password
-     * @return
-     */
-    private boolean unzipWrap(File zipfile, File picofile, byte[] key, String password) {
-        int n = -1;
-        boolean result = true;
-        try {
-
-            // Open for reading the zip file; the name is specified in the catalog file.
-            ZipFile zipFile = new ZipFile(zipfile);
-
-            // Check to see if the zip file is password protected 
-            if (zipFile.isEncrypted()) {
-                // if yes, then set the password for the zip file
-                zipFile.setPassword(password);
-            }
-
-            // Read the unziped bytes from the zip file and write the Pico encoded bytes
-            // to the Pico file.  Should only be one header.
-            List<FileHeader> list = zipFile.getFileHeaders();
-            for (FileHeader fh : list) {
-
-                // Final pico file.
-                InputStream zis = zipFile.getInputStream(fh);
-                PicoOutputStream pos = new PicoOutputStream(key, new FileOutputStream(picofile));
-                boolean r = transfer(zis, pos);
-
-                // Filename should be: malware.exe
-                System.out.println(picofile.getAbsolutePath() + ": " + r);
-                result &= r;
-            }
-
-        } catch (Exception e) {
-            System.err.println(e.getMessage());
-            result = false;
-        }
         return result;
     }
 

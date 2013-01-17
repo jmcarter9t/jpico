@@ -11,6 +11,7 @@
 
 package ornl.pico.io;
 
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -33,7 +34,7 @@ import java.security.NoSuchAlgorithmException;
  * 
  * @author Stacy Prowell (prowellsj@ornl.gov)
  */
-public class PicoOutputStream extends OutputStream {
+public class PicoOutputStream extends BufferedOutputStream {
 
     /** The physical output stream to get the data. */
     private final OutputStream _backing;
@@ -65,6 +66,8 @@ public class PicoOutputStream extends OutputStream {
      * @throws IOException		An error occurred creating the temporary file.
      */
     public PicoOutputStream(byte[] key, OutputStream os) throws IOException {
+    	super(os);
+    	
         if (key == null) {
             throw new NullPointerException("The key is null.");
         }
@@ -88,6 +91,41 @@ public class PicoOutputStream extends OutputStream {
         _head.setKey(key);
     }
 
+    @Override
+    public void write(byte[] arr, int off, int len) throws IOException {
+        if (_closed)
+            return;
+
+        
+        // first make copy of relevant part of array
+        // TODO : add bounds checking
+        byte[] encodedArr = new byte[len-off];
+        System.arraycopy(arr, off, encodedArr, 0, len);
+        
+        for (int i=off; i<(off+len); i++) {
+        	byte b = arr[i];
+        	
+        	// Add to the message digest.
+        	_hash.update((byte) b);
+        	
+        	// Encode.
+        	b = _head.crypt((byte) b, _position);
+        	_position++;
+        	
+        	// Add encoded byte to b
+        	encodedArr[i] = b;
+        }
+
+        // Write.
+        _encrypted.write(encodedArr);
+//        System.out.println("SBJHBKJDBH");
+    }
+    
+    @Override
+    public void write(byte[] b) throws IOException {
+        write(b, 0, b.length);
+    } 
+    
     /* (non-Javadoc)
      * @see java.io.OutputStream#write(int)
      */
