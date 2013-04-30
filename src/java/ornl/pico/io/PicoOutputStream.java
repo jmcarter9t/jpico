@@ -99,6 +99,7 @@ public class PicoOutputStream extends BufferedOutputStream {
         
         // first make copy of relevant part of array
         // TODO : add bounds checking
+        // JMC: Why not just new byte[len]??
         byte[] encodedArr = new byte[len-off];
         System.arraycopy(arr, off, encodedArr, 0, len);
         
@@ -177,6 +178,8 @@ public class PicoOutputStream extends BufferedOutputStream {
         // Write the encrypted data to the backing store.
         _encrypted.flush();
         _encrypted.close();
+        
+        // Now we perform that transfer from temporary file to final file.
         InputStream fis = new FileInputStream(_tmpfile);
         byte[] buffer = new byte[1024];
         while (fis.available() > 0) {
@@ -188,7 +191,6 @@ public class PicoOutputStream extends BufferedOutputStream {
         fis.close();
         _backing.flush();
         _tmpfile.delete();
-
         _closed = true;
     }
 }

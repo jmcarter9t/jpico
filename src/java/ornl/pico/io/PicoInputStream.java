@@ -89,6 +89,8 @@ public class PicoInputStream extends InputStream {
 	public PicoHeader getHeader() {
 		return _head.clone();
 	}
+	
+	// The other InputStream read methods will use the method we implement below.
 
 	/**
 	 * @see java.io.InputStream#read()
