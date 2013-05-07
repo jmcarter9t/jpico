@@ -6,9 +6,19 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Collection;
 
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.filefilter.IOFileFilter;
+import org.apache.commons.io.filefilter.MagicNumberFileFilter;
+import org.apache.commons.io.filefilter.NotFileFilter;
+import org.apache.commons.io.filefilter.TrueFileFilter;
+
+import ornl.pico.PicoException;
+import ornl.pico.io.PicoFile;
 import ornl.pico.io.PicoInputStream;
 import ornl.pico.io.PicoOutputStream;
+import ornl.pico.io.PicoStructure;
 
 /**
  * This tool unzips the file specified and then pico wraps it with the provided
@@ -28,7 +38,6 @@ public class PicoWrapperTool {
 
     /** File to file transfer buffer; instances can reuse this. */
     private static byte[] buffer = new byte[buffer_size];
-
 
     // /////////////////////////////////////////////////////////////////////////////
     // Class methods.
@@ -75,11 +84,11 @@ public class PicoWrapperTool {
     public static boolean wrap(String unwrappedfile, String wrappedfile, byte[] key) {
         return wrap(new File(unwrappedfile), new File(wrappedfile), key);
     }
-    
+
     public static boolean unwrap(String wrappedfile, String unwrappedfile) {
         return unwrap(new File(wrappedfile), new File(unwrappedfile));
     }
-    
+
     /**
      * Pico wrap the infile to an outfile.
      * 
@@ -125,9 +134,16 @@ public class PicoWrapperTool {
     }
 
     /**
+     * Search through the specified directory structure and either Pico wrap the
+     * files or unwrap the Pico files.
+     * 
+     * $ tool -unwrap|-wrap <root directory> <extension for unwrapped files|key
+     * for wrapped files> <buffersize>
+     * 
      * @param args
+     * @throws IOException
      */
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
 
         int rcode = 0;
 
@@ -139,24 +155,49 @@ public class PicoWrapperTool {
         // outfile base
         // directory using keystring.
 
-        if (args.length < 3 || args.length > 6) {
+        if (args.length < 3 || args.length > 4) {
             usage();
         }
 
         String command = args[0];
-        String infile = args[1];
-        String outfile = args[2];
-
-        if (args.length == 6) {
-            setBufferSize(Integer.parseInt(args[5]));
+        File directory = new File(args[1]);
+        String ext_or_key = args[2];
+        if (args.length == 4) {
+            setBufferSize(Integer.parseInt(args[3]));
         }
 
+        // Assume we are unwrapping and will look for Pico files.
+        IOFileFilter ff = new MagicNumberFileFilter(PicoStructure.MAGIC);
+
+        // If we are wrapping instead negate the filter.
+        if ("-wrap".equals(command)) {
+            ff = new NotFileFilter(ff);
+        }
+
+        // Grab all the files starting at root that match the File Filter;
+        // recursively traverse the directories.
+        Collection<File> files = FileUtils.listFiles(directory, ff, TrueFileFilter.TRUE);
+
         if ("-unwrap".equalsIgnoreCase(command)) {
-            rcode = unwrap(infile, outfile) ? 0 : 1;
+            for (File fin : files) {
+                try {
+                    // Checks the pico file header; we use the streams to
+                    // unwrap.
+                    PicoFile.open(fin);
+                    String fout = fin.getCanonicalPath() + "." + ext_or_key;
+                    rcode = unwrap(fin.getCanonicalPath(), fout) ? 0 : 1;
+                } catch (PicoException pe) {
+                    // There was a problem with the file structure.
+                    System.err.printf("The file: %s is probably not a pico file.\n", fin.getName());
+                    continue;
+                }
+            }
 
-        } else if ("-wrap".equalsIgnoreCase(command) && args.length == 4) {
-            rcode = wrap(infile, outfile, args[3].getBytes()) ? 0 : 1;
-
+        } else if ("-wrap".equalsIgnoreCase(command)) {
+            for (File fin : files) {
+                String fout = fin.getCanonicalPath() + ".pico";
+                rcode = wrap(fin.getCanonicalPath(), fout, ext_or_key.getBytes()) ? 0 : 1;
+            }
         } else {
             usage();
         }
