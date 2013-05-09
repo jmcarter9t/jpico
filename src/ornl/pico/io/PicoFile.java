@@ -595,12 +595,15 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
 
         int length;
 
-        // 1K buffer.
-        byte[] buf = new byte[2 ^ 10];
+        // 4K buffer.
+        byte[] buf = new byte[4 * (2 ^ 10)];
 
         _backing.seek(0);
+        
+        // Read up to 4K blocks from the backing file
         while ((length = _backing.read(buf)) > 0) {
             try {
+                // store the block of the correct size into the ByteBuffer.
                 dst.put(buf, 0, length);
             } catch (BufferOverflowException e) {
                 return null;
