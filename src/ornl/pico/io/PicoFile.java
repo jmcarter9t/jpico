@@ -171,6 +171,7 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
         return new PicoFile(new RandomAccessFile(file, "rw"));
     }
     
+    
     public static PicoFile open(File file, String method) throws PicoException, IOException {
         if (file == null) {
             throw new NullPointerException("The file is null.");
