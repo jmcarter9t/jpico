@@ -1,13 +1,22 @@
 package ornl.pico.tool;
 
+import gov.ornl.cwr.pico.hbase.importer.LocalFileImporter;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Arrays;
 import java.util.Collection;
 
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.GnuParser;
+import org.apache.commons.cli.HelpFormatter;
+import org.apache.commons.cli.Option;
+import org.apache.commons.cli.OptionBuilder;
+import org.apache.commons.cli.Options;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.IOFileFilter;
 import org.apache.commons.io.filefilter.MagicNumberFileFilter;
@@ -21,8 +30,7 @@ import ornl.pico.io.PicoOutputStream;
 import ornl.pico.io.PicoStructure;
 
 /**
- * This tool unzips the file specified and then pico wraps it with the provided
- * key.
+ * This tool manipulates Pico files.
  * 
  * @author jcarter
  * @version $Date$ $Version$
@@ -49,13 +57,66 @@ public class PicoWrapperTool {
         System.exit(1);
     }
 
+    private CommandLine commandline;
+    private Options options;
+    
+    
+    public PicoWrapperTool(String[] args) {
+
+        // Build the command line and parser the commands.
+        commandline = new GnuParser().parse(buildCommandLine(), args);
+        long total = 0L;
+
+        int rcode = 0;
+
+        // use a zip stream into a pico output stream.
+
+        // -unwrap pico file infile to file outfile -- no keystring needed.
+        // -wrap file infile to pico file outfile using keystring.
+        // -catalog catalog infile line by line. unzip, wrap, and dump into
+        // outfile base
+        // directory using keystring.
+
+        if (args.length < 3 || args.length > 4) {
+            usage();
+        }
+
+        try {
+            // Parse the arguments using the options previously set up.
+            cmds = new GnuParser().parse(options, args);
+
+            log.trace("The command line options: " + Arrays.toString(cmds.getOptions()));
+            log.trace("The command line arguments: " + Arrays.toString(cmds.getArgs()));
+
+            if (!cmds.hasOption('d')) {
+                throw new org.apache.commons.cli.ParseException(
+                        "A directory was not specified to start the import.");
+            }
+
+            if (cmds.hasOption('h')) {
+                table = cmds.getOptionValue('h');
+            }
+
+            if (cmds.hasOption('l')) {
+                label = cmds.getOptionValue('l');
+            }
+
+        } catch (org.apache.commons.cli.ParseException e1) {
+            HelpFormatter hformatter = new HelpFormatter();
+            hformatter.printHelp("java -jar HBaseFileImporter.jar", options);
+            System.exit(1);
+        }
+        
+    }
+    
+
     /**
      * 
      * @param is
      * @param os
      * @return
      */
-    private static boolean transfer(InputStream is, OutputStream os) {
+    private boolean transfer(InputStream is, OutputStream os) {
         int n = -1;
         try {
             while ((n = is.read(buffer)) > 0) {
@@ -76,16 +137,16 @@ public class PicoWrapperTool {
      * 
      * @param size
      */
-    public static void setBufferSize(int size) {
+    public void setBufferSize(int size) {
         buffer_size = size;
         buffer = new byte[buffer_size];
     }
 
-    public static boolean wrap(String unwrappedfile, String wrappedfile, byte[] key) {
+    public boolean wrap(String unwrappedfile, String wrappedfile, byte[] key) {
         return wrap(new File(unwrappedfile), new File(wrappedfile), key);
     }
 
-    public static boolean unwrap(String wrappedfile, String unwrappedfile) {
+    public boolean unwrap(String wrappedfile, String unwrappedfile) {
         return unwrap(new File(wrappedfile), new File(unwrappedfile));
     }
 
@@ -95,7 +156,7 @@ public class PicoWrapperTool {
      * @param key the Pico wrap key.
      * @return true on success; false on failure.
      */
-    public static boolean wrap(File unwrappedfile, File wrappedfile, byte[] key) {
+    public boolean wrap(File unwrappedfile, File wrappedfile, byte[] key) {
 
         boolean result = false;
 
@@ -116,7 +177,7 @@ public class PicoWrapperTool {
      * 
      * @return true on success; false on failure.
      */
-    public static boolean unwrap(File wrappedfile, File unwrappedfile) {
+    public boolean unwrap(File wrappedfile, File unwrappedfile) {
 
         boolean result = false;
 
@@ -134,31 +195,64 @@ public class PicoWrapperTool {
     }
 
     /**
-     * Search through the specified directory structure and either Pico wrap the
-     * files or unwrap the Pico files.
+     * Build and return the command line options.
      * 
-     * $ tool -unwrap|-wrap <root directory> <extension for unwrapped files|key
-     * for wrapped files> <buffersize>
+     * @return the command line Options.
+     */
+    private Options buildCommandLine() {
+
+        // Command line build.
+        Options options = new Options();
+        Option opt;
+
+        opt = OptionBuilder.withArgName("recursive")
+                .withDescription("recursively search from the source directory.").create('r');
+        options.addOption(opt);
+
+        opt = OptionBuilder.withArgName("unwrap").withDescription("unwrap files.").create('u');
+        options.addOption(opt);
+
+        opt = OptionBuilder.withArgName("wrap").withDescription("wrap files.").create('w');
+        options.addOption(opt);
+
+        opt = OptionBuilder.withArgName("source").hasArg().isRequired()
+                .withDescription("The location of the file(s) to process.").create('s');
+        options.addOption(opt);
+
+        opt = OptionBuilder.withArgName("target").hasArg().isRequired()
+                .withDescription("The location where the processed file(s) will be written.")
+                .create('t');
+        options.addOption(opt);
+
+        return options;
+    }
+
+    /**
+     * Utility for working with Pico files. Provides the following
+     * functionality:
+     * 
+     * The utility will either wrap or unwrap a file or a directory. If a
+     * directory, then all files in the directory will be examined. If the -r
+     * option is used then it will search recursively. The source (-s) is where
+     * the input files will be drawn; the target (-t) is where the output files
+     * will be written; it is always a directory. The only argument is a single
+     * string that is used as either the key for wrapping or the extension of
+     * files that are unwrapped.
+     * 
+     * $ pico [-r] -u|-w -s=<source> -t=<target> <key|extension>
      * 
      * @param args
      * @throws IOException
      */
     public static void main(String[] args) throws IOException {
 
-        int rcode = 0;
-
-        // use a zip stream into a pico output stream.
-
-        // -unwrap pico file infile to file outfile -- no keystring needed.
-        // -wrap file infile to pico file outfile using keystring.
-        // -catalog catalog infile line by line. unzip, wrap, and dump into
-        // outfile base
-        // directory using keystring.
-
-        if (args.length < 3 || args.length > 4) {
-            usage();
-        }
-
+        PicoWrapperTool tool = new PicoWrapperTool(args);
+        tool.run();
+        
+        tool.parse(args);
+        
+        
+        
         String command = args[0];
         File directory = new File(args[1]);
         String ext_or_key = args[2];
