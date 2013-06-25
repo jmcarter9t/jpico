@@ -22,15 +22,15 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 /**
- * Create an output stream to write Pico-encrypted data.  To use this provide
- * a key and the output stream to get the data.  If you have the hash for the
- * unencrypted data, provide that, too.  If not, the hash will be computed as
- * the file is written.  Because the hash needs to go in the header at the
- * start of the stream, the encrypted data is first written to a temporary
- * file, and then copied to the stream on close.
+ * Create an output stream to write Pico-encrypted data. To use this provide a
+ * key and the output stream to get the data. If you have the hash for the
+ * unencrypted data, provide that, too. If not, the hash will be computed as the
+ * file is written. Because the hash needs to go in the header at the start of
+ * the stream, the encrypted data is first written to a temporary file, and then
+ * copied to the stream on close.
  * <p>
  * Be sure to use the {@code close()} method to ensure the file is completely
- * written!  The {@code flush()} method has no effect.
+ * written! The {@code flush()} method has no effect.
  * 
  * @author Stacy Prowell (prowellsj@ornl.gov)
  */
@@ -58,16 +58,16 @@ public class PicoOutputStream extends BufferedOutputStream {
     private long _position = 0L;
 
     /**
-     * Make a new Pico output stream, wrapping the provided stream.  Use the
+     * Make a new Pico output stream, wrapping the provided stream. Use the
      * given key to encrypt the data.
      * 
-     * @param key				The key to use to encrypt.
-     * @param os				The stream to get the output.
-     * @throws IOException		An error occurred creating the temporary file.
+     * @param key The key to use to encrypt.
+     * @param os The stream to get the output.
+     * @throws IOException An error occurred creating the temporary file.
      */
     public PicoOutputStream(byte[] key, OutputStream os) throws IOException {
-    	super(os);
-    	
+        super(os);
+
         if (key == null) {
             throw new NullPointerException("The key is null.");
         }
@@ -75,13 +75,13 @@ public class PicoOutputStream extends BufferedOutputStream {
             throw new NullPointerException("The output stream is null.");
         }
         _backing = os;
-        
+
         try {
             _hash = MessageDigest.getInstance(PicoStructure.HASH);
         } catch (NoSuchAlgorithmException nsae) {
             throw new RuntimeException("Failed to create hash.", nsae);
         }
-        
+
         // Construct a temporary file to get the encrypted data.
         _tmpfile = File.createTempFile("pico", "pico");
         _tmpfile.deleteOnExit();
@@ -96,38 +96,52 @@ public class PicoOutputStream extends BufferedOutputStream {
         if (_closed)
             return;
 
-        
+        // Ripped from FilterOutputStream
+        if ((off | len | (arr.length - (len + off)) | (off + len)) < 0) {
+            throw new IndexOutOfBoundsException();
+        }
+
         // first make copy of relevant part of array
-        // TODO : add bounds checking
-        // JMC: Why not just new byte[len]??
-        byte[] encodedArr = new byte[len-off];
-        System.arraycopy(arr, off, encodedArr, 0, len);
-        
-        for (int i=off; i<(off+len); i++) {
-        	byte b = arr[i];
-        	
-        	// Add to the message digest.
-        	_hash.update((byte) b);
-        	
-        	// Encode.
-        	b = _head.crypt((byte) b, _position);
-        	_position++;
-        	
-        	// Add encoded byte to b
-        	encodedArr[i] = b;
+        // byte[] encodedArr = new byte[len-off];
+
+        // JMC: the above is wrong according to the specification; len is the
+        // number of bytes that we are encoding from arr. off could be 100 and
+        // len could be 2. we don't need 98 bytes.
+        byte[] encodedArr = new byte[len];
+
+        // JMC: Not sure why this copy is necessary. Seems we are dong the
+        // copying below.
+        // System.arraycopy(arr, off, encodedArr, 0, len);
+
+        // JMC: Removed this so we can use i into encodedArr
+        // for (int i = off; i < (off + len); i++) {
+        for (int i = 0; i < len; i++) {
+            byte b = arr[off + i];
+
+            // Add to the message digest. TODO: Not sure if performance wise
+            // this would be faster as a block hash update??
+            _hash.update((byte) b);
+
+            // Encode.
+            b = _head.crypt((byte) b, _position);
+            _position++;
+
+            // Add encoded byte to b
+            encodedArr[i] = b;
         }
 
         // Write.
         _encrypted.write(encodedArr);
-//        System.out.println("SBJHBKJDBH");
     }
-    
+
     @Override
     public void write(byte[] b) throws IOException {
         write(b, 0, b.length);
-    } 
-    
-    /* (non-Javadoc)
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.io.OutputStream#write(int)
      */
     @Override
@@ -149,7 +163,9 @@ public class PicoOutputStream extends BufferedOutputStream {
         _position += 1;
     }
 
-    /* (non-Javadoc)
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.io.OutputStream#close()
      */
     @Override
@@ -162,11 +178,11 @@ public class PicoOutputStream extends BufferedOutputStream {
 
     /**
      * Finish the stream, writing the header and the encrypted data to the
-     * stream.  The underlying stream is not closed.  If you want to cause
-     * the underlying stream to be closed, too, use {@code close()}, which
-     * invokes this method and then closes the stream.
+     * stream. The underlying stream is not closed. If you want to cause the
+     * underlying stream to be closed, too, use {@code close()}, which invokes
+     * this method and then closes the stream.
      * 
-     * @throws IOException	An error occurred writing the file.
+     * @throws IOException An error occurred writing the file.
      */
     public void finish() throws IOException {
         // Finish the hash and store it in the header.
@@ -178,7 +194,7 @@ public class PicoOutputStream extends BufferedOutputStream {
         // Write the encrypted data to the backing store.
         _encrypted.flush();
         _encrypted.close();
-        
+
         // Now we perform that transfer from temporary file to final file.
         InputStream fis = new FileInputStream(_tmpfile);
         byte[] buffer = new byte[1024];

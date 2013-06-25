@@ -607,12 +607,13 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
             return null;
         }
 
+        // 4K buffer.
+        final byte[] buf = new byte[4 * (2 ^ 10)];
+        
         ByteBuffer dst = ByteBuffer.allocate((int) _backing.length());
 
         int length;
 
-        // 4K buffer.
-        byte[] buf = new byte[4 * (2 ^ 10)];
 
         _backing.seek(0);
 
