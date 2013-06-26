@@ -602,31 +602,36 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
         return val;
     }
 
-    public ByteBuffer readBacking() throws IOException {
+    /**
+     * Return the original file bytes that back this PicoFile.
+     * 
+     * @return the original file bytes in an array.
+     * 
+     * @throws IOException
+     */
+    public byte[] getBackingBytes() throws IOException {
+
         if (!_open) {
             return null;
         }
 
+        int bytesread;
+
         // 4K buffer.
         final byte[] buf = new byte[4 * (2 ^ 10)];
-        
-        ByteBuffer dst = ByteBuffer.allocate((int) _backing.length());
 
-        int length;
-
+        ByteBuffer backingbuffer = ByteBuffer.allocate((int) _backing.length());
 
         _backing.seek(0);
 
-        // Read up to 4K blocks from the backing file
-        while ((length = _backing.read(buf)) > 0) {
+        while ((bytesread = _backing.read(buf)) > 0) {
             try {
-                // store the block of the correct size into the ByteBuffer.
-                dst.put(buf, 0, length);
+                backingbuffer.put(buf, 0, bytesread);
             } catch (BufferOverflowException e) {
                 return null;
             }
         }
-        return dst;
+        return backingbuffer.array();
     }
 
     // ======================================================================
