@@ -12,6 +12,7 @@
 package ornl.pico.io;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.BufferOverflowException;
@@ -52,6 +53,18 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
     // Static methods.
     // ======================================================================
 
+    public static boolean checkMagic(File file) throws IOException {
+
+        // Attempt to extract the first 10 bytes. For files with fewer
+        // than 10 bytes, use what the file contains.
+        byte[] magic = new byte[2];
+        FileInputStream fis = new FileInputStream(file);
+        fis.read(magic);
+        fis.close();
+
+        return Arrays.equals(magic, PicoStructure.MAGIC);
+    }
+    
     /**
      * Create or replace a Pico file. If the file exists it will be replaced. If
      * it does not exist it is created. A random key is used.
@@ -174,22 +187,24 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
     /**
      * 
      * @param file
-     * @param method
+     * @param mode
      * @return
      * @throws PicoException
      * @throws IOException
      */
-    public static PicoFile open(File file, String method) throws PicoException, IOException {
+    public static PicoFile open(File file, String mode) throws PicoException, IOException {
         if (file == null) {
             throw new NullPointerException("The file is null.");
         }
 
-        if (!(method.equals("rw") || method.equals("r") || method.equals("w"))) {
-            throw new PicoException("The method: " + method
+        if (!(mode.equals("rw") || mode.equals("r") || mode.equals("w"))) {
+            throw new PicoException("The method: " + mode
                     + " of working with a file cannot be used.");
         }
 
-        return new PicoFile(new RandomAccessFile(file, method));
+        PicoFile pf = new PicoFile(new RandomAccessFile(file, mode));
+        pf.mode = mode;
+        return pf;
     }
 
     // ======================================================================
@@ -213,6 +228,8 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
 
     /** The message digest to use to compute the hash. */
     private MessageDigest _digest;
+
+    private String mode = "rw";
 
     // ======================================================================
     // Constructors.
@@ -475,7 +492,12 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
     public void close() throws IOException {
         if (!_open)
             return;
-        finish();
+        
+        // We only need to execute the finish method if we are writing.
+        if (mode.contains("w")) {
+            finish();
+        }
+        
         _open = false;
         _backing.close();
     }
