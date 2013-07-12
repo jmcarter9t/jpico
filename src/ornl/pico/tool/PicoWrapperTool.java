@@ -2,6 +2,7 @@ package ornl.pico.tool;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -16,12 +17,14 @@ import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.filefilter.IOFileFilter;
 import org.apache.commons.io.filefilter.MagicNumberFileFilter;
 import org.apache.commons.io.filefilter.NotFileFilter;
 import org.apache.commons.io.filefilter.TrueFileFilter;
 import org.apache.log4j.Logger;
 
+import ornl.pico.PicoException;
 import ornl.pico.io.PicoInputStream;
 import ornl.pico.io.PicoOutputStream;
 import ornl.pico.io.PicoStructure;
@@ -141,7 +144,7 @@ public class PicoWrapperTool {
             throw new ParseException(
                     "The target is not a directory; only a directory can be specified.");
         } else {
-            
+
             if (!target.exists()) {
                 target.mkdir();
             }
@@ -377,6 +380,37 @@ public class PicoWrapperTool {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Unwrap a Pico encoded file.
+     * 
+     * @return true on success; false on failure.
+     * @throws IOException
+     * @throws PicoException
+     * @throws FileNotFoundException
+     */
+    // ------------------------------------
+    // Added function
+    public static byte[] unWrapped(File wrappedFile) {
+
+        System.err.println("In the unWrapped Method.");
+        byte[] B = null;
+
+        try {
+
+            PicoInputStream pis = new PicoInputStream(new FileInputStream(wrappedFile));
+            B = IOUtils.toByteArray(pis);
+
+            for (int i = 0; i < B.length; i++) {
+                System.err.printf("%0X ", (byte) B[i]);
+            }
+
+        } catch (Exception e) {
+            System.err.println(e.getMessage());
+        }
+
+        return B;
     }
 
     /**
