@@ -1,7 +1,9 @@
 package ornl.pico.tool;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -9,16 +11,19 @@ import java.io.OutputStream;
 import java.util.Collection;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.filefilter.IOFileFilter;
 import org.apache.commons.io.filefilter.MagicNumberFileFilter;
 import org.apache.commons.io.filefilter.NotFileFilter;
 import org.apache.commons.io.filefilter.TrueFileFilter;
+import org.apache.commons.io.output.ByteArrayOutputStream;
 
 import ornl.pico.PicoException;
 import ornl.pico.io.PicoFile;
 import ornl.pico.io.PicoInputStream;
 import ornl.pico.io.PicoOutputStream;
 import ornl.pico.io.PicoStructure;
+
 
 /**
  * This tool unzips the file specified and then pico wraps it with the provided
@@ -29,179 +34,227 @@ import ornl.pico.io.PicoStructure;
  */
 public class PicoWrapperTool {
 
-    // /////////////////////////////////////////////////////////////////////////////
-    // Class fields.
-    // /////////////////////////////////////////////////////////////////////////////
+	// /////////////////////////////////////////////////////////////////////////////
+	// Class fields.
+	// /////////////////////////////////////////////////////////////////////////////
 
-    /** Size in bytes of the buffer. */
-    private static int buffer_size = 10 * 2 ^ 10;
+	/** Size in bytes of the buffer. */
+	private static int buffer_size = 10 * 2 ^ 10;
 
-    /** File to file transfer buffer; instances can reuse this. */
-    private static byte[] buffer = new byte[buffer_size];
+	/** File to file transfer buffer; instances can reuse this. */
+	private static byte[] buffer = new byte[buffer_size];
 
-    // /////////////////////////////////////////////////////////////////////////////
-    // Class methods.
-    // /////////////////////////////////////////////////////////////////////////////
+	// /////////////////////////////////////////////////////////////////////////////
+	// Class methods.
+	// /////////////////////////////////////////////////////////////////////////////
 
-    public static void usage() {
-        System.err
-                .println("Usage: java -jar PicoWrapperTool.jar [-catalog|-unwrap|-wrap] <infile> <outfile> [keystring] [password]");
-        System.exit(1);
-    }
+	public static void usage() {
+		System.err
+				.println("Usage: java -jar PicoWrapperTool.jar [-catalog|-unwrap|-wrap] <infile> <outfile> [keystring] [password]");
+		System.exit(1);
+	}
 
-    /**
-     * 
-     * @param is
-     * @param os
-     * @return
-     */
-    private static boolean transfer(InputStream is, OutputStream os) {
-        int n = -1;
-        try {
-            while ((n = is.read(buffer)) > 0) {
-                os.write(buffer, 0, n);
-            }
+	/**
+	 * 
+	 * @param is
+	 * @param os
+	 * @return
+	 */
+	private static boolean transfer(InputStream is, OutputStream os) {
+		int n = -1;
+		try {
+			while ((n = is.read(buffer)) > 0) {
+				os.write(buffer, 0, n);
+			}
 
-            is.close();
-            os.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return false;
-        }
-        return true;
-    }
+			is.close();
+			os.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+			return false;
+		}
+		return true;
+	}
 
-    /**
-     * Explicitly set the size of the r/w buffer.
-     * 
-     * @param size
-     */
-    public static void setBufferSize(int size) {
-        buffer_size = size;
-        buffer = new byte[buffer_size];
-    }
+	/**
+	 * Explicitly set the size of the r/w buffer.
+	 * 
+	 * @param size
+	 */
+	public static void setBufferSize(int size) {
+		buffer_size = size;
+		buffer = new byte[buffer_size];
+	}
 
-    public static boolean wrap(String unwrappedfile, String wrappedfile, byte[] key) {
-        return wrap(new File(unwrappedfile), new File(wrappedfile), key);
-    }
+	public static boolean wrap(String unwrappedfile, String wrappedfile,
+			byte[] key) {
+		return wrap(new File(unwrappedfile), new File(wrappedfile), key);
+	}
 
-    public static boolean unwrap(String wrappedfile, String unwrappedfile) {
-        return unwrap(new File(wrappedfile), new File(unwrappedfile));
-    }
+	public static boolean unwrap(String wrappedfile, String unwrappedfile) {
+		return unwrap(new File(wrappedfile), new File(unwrappedfile));
+	}
 
-    /**
-     * Pico wrap the infile to an outfile.
-     * 
-     * @param key the Pico wrap key.
-     * @return true on success; false on failure.
-     */
-    public static boolean wrap(File unwrappedfile, File wrappedfile, byte[] key) {
+	/**
+	 * Pico wrap the infile to an outfile.
+	 * 
+	 * @param key
+	 *            the Pico wrap key.
+	 * @return true on success; false on failure.
+	 */
+	public static boolean wrap(File unwrappedfile, File wrappedfile, byte[] key) {
 
-        boolean result = false;
+		boolean result = false;
 
-        try {
+		try {
 
-            PicoOutputStream pos = new PicoOutputStream(key, new FileOutputStream(wrappedfile));
-            FileInputStream fis = new FileInputStream(unwrappedfile);
-            result = transfer(fis, pos);
+			PicoOutputStream pos = new PicoOutputStream(key,
+					new FileOutputStream(wrappedfile));
+			FileInputStream fis = new FileInputStream(unwrappedfile);
+			result = transfer(fis, pos);
 
-        } catch (Exception e) {
-            System.err.println(e.getMessage());
-        }
-        return result;
-    }
+		} catch (Exception e) {
+			System.err.println(e.getMessage());
+		}
+		return result;
+	}
 
-    /**
-     * Unwrap a Pico encoded file.
-     * 
-     * @return true on success; false on failure.
-     */
-    public static boolean unwrap(File wrappedfile, File unwrappedfile) {
+	/**
+	 * Unwrap a Pico encoded file when called with the file name
+	 * 
+	 * @param fileName
+	 * @return byte array
+	 */
+	public static byte[] Pico_File(String fileName) {
 
-        boolean result = false;
+		File file = new File(fileName);
+		byte[] B = new byte[(int) (file.length())];
+		try {
+			PicoInputStream pis = new PicoInputStream(new FileInputStream(file));
+			B = IOUtils.toByteArray(pis);
+		} catch (Throwable t) {
+			System.err.println(t.getMessage());
+		}
+		return B;
+	}
 
-        try {
+	/**
+	 * Unwrap a Pico encoded file when called file as a byte array
+	 * 
+	 * @param byte array
+	 * @return byte array
+	 */
+	public static byte[] Pico_File(byte[] sourceFile) {
 
-            PicoInputStream pis = new PicoInputStream(new FileInputStream(wrappedfile));
-            FileOutputStream fos = new FileOutputStream(unwrappedfile);
-            result = transfer(pis, fos);
+		try {
+			PicoInputStream pis = new PicoInputStream(new ByteArrayInputStream(
+					sourceFile));
+			sourceFile = IOUtils.toByteArray(pis);
+		} catch (Throwable t) {
+			System.err.println(t.getMessage());
+		}
+		return sourceFile;
+	}
 
-        } catch (Exception e) {
-            System.err.println(e.getMessage());
-        }
+	/**
+	 * Unwrap a Pico encoded file.
+	 * 
+	 * @return true on success; false on failure.
+	 * @throws IOException
+	 * @throws PicoException
+	 * @throws FileNotFoundException
+	 */
+	public static boolean unwrap(File wrappedfile, File unwrappedfile) {
 
-        return result;
-    }
+		boolean result = false;
 
-    /**
-     * Search through the specified directory structure and either Pico wrap the
-     * files or unwrap the Pico files.
-     * 
-     * $ tool -unwrap|-wrap <root directory> <extension for unwrapped files|key
-     * for wrapped files> <buffersize>
-     * 
-     * @param args
-     * @throws IOException
-     */
-    public static void main(String[] args) throws IOException {
+		try {
 
-        int rcode = 0;
+			PicoInputStream pis = new PicoInputStream(new FileInputStream(
+					wrappedfile));
+			FileOutputStream fos = new FileOutputStream(unwrappedfile);
+			result = transfer(pis, fos);
 
-        // use a zip stream into a pico output stream.
+		} catch (Exception e) {
+			System.err.println(e.getMessage());
+		}
 
-        // -unwrap pico file infile to file outfile -- no keystring needed.
-        // -wrap file infile to pico file outfile using keystring.
-        // -catalog catalog infile line by line. unzip, wrap, and dump into
-        // outfile base
-        // directory using keystring.
+		return result;
+	}
 
-        if (args.length < 3 || args.length > 4) {
-            usage();
-        }
+	/**
+	 * Search through the specified directory structure and either Pico wrap the
+	 * files or unwrap the Pico files.
+	 * 
+	 * $ tool -unwrap|-wrap <root directory> <extension for unwrapped files|key
+	 * for wrapped files> <buffersize>
+	 * 
+	 * @param args
+	 * @throws IOException
+	 */
+	public static void main(String[] args) throws IOException {
 
-        String command = args[0];
-        File directory = new File(args[1]);
-        String ext_or_key = args[2];
-        if (args.length == 4) {
-            setBufferSize(Integer.parseInt(args[3]));
-        }
+		int rcode = 0;
 
-        // Assume we are unwrapping and will look for Pico files.
-        IOFileFilter ff = new MagicNumberFileFilter(PicoStructure.MAGIC);
+		// use a zip stream into a pico output stream.
 
-        // If we are wrapping instead negate the filter.
-        if ("-wrap".equals(command)) {
-            ff = new NotFileFilter(ff);
-        }
+		// -unwrap pico file infile to file outfile -- no keystring needed.
+		// -wrap file infile to pico file outfile using keystring.
+		// -catalog catalog infile line by line. unzip, wrap, and dump into
+		// outfile base
+		// directory using keystring.
 
-        // Grab all the files starting at root that match the File Filter;
-        // recursively traverse the directories.
-        Collection<File> files = FileUtils.listFiles(directory, ff, TrueFileFilter.TRUE);
+		if (args.length < 3 || args.length > 4) {
+			usage();
+		}
 
-        if ("-unwrap".equalsIgnoreCase(command)) {
-            for (File fin : files) {
-                try {
-                    // Checks the pico file header; we use the streams to
-                    // unwrap.
-                    PicoFile.open(fin);
-                    String fout = fin.getCanonicalPath() + "." + ext_or_key;
-                    rcode = unwrap(fin.getCanonicalPath(), fout) ? 0 : 1;
-                } catch (PicoException pe) {
-                    // There was a problem with the file structure.
-                    System.err.printf("The file: %s is probably not a pico file.\n", fin.getName());
-                    continue;
-                }
-            }
+		String command = args[0];
+		File directory = new File(args[1]);
+		String ext_or_key = args[2];
+		if (args.length == 4) {
+			setBufferSize(Integer.parseInt(args[3]));
+		}
 
-        } else if ("-wrap".equalsIgnoreCase(command)) {
-            for (File fin : files) {
-                String fout = fin.getCanonicalPath() + ".pico";
-                rcode = wrap(fin.getCanonicalPath(), fout, ext_or_key.getBytes()) ? 0 : 1;
-            }
-        } else {
-            usage();
-        }
+		// Assume we are unwrapping and will look for Pico files.
+		IOFileFilter ff = new MagicNumberFileFilter(PicoStructure.MAGIC);
 
-        System.exit(rcode);
-    }
+		// If we are wrapping instead negate the filter.
+		if ("-wrap".equals(command)) {
+			ff = new NotFileFilter(ff);
+		}
+
+		// Grab all the files starting at root that match the File Filter;
+		// recursively traverse the directories.
+		Collection<File> files = FileUtils.listFiles(directory, ff,
+				TrueFileFilter.TRUE);
+
+		if ("-unwrap".equalsIgnoreCase(command)) {
+			for (File fin : files) {
+				try {
+					// Checks the pico file header; we use the streams to
+					// unwrap.
+					PicoFile.open(fin);
+					String fout = fin.getCanonicalPath() + "." + ext_or_key;
+					rcode = unwrap(fin.getCanonicalPath(), fout) ? 0 : 1;
+				} catch (PicoException pe) {
+					// There was a problem with the file structure.
+					System.err.printf(
+							"The file: %s is probably not a pico file.\n",
+							fin.getName());
+					continue;
+				}
+			}
+
+		} else if ("-wrap".equalsIgnoreCase(command)) {
+			for (File fin : files) {
+				String fout = fin.getCanonicalPath() + ".pico";
+				rcode = wrap(fin.getCanonicalPath(), fout,
+						ext_or_key.getBytes()) ? 0 : 1;
+			}
+		} else {
+			usage();
+		}
+
+		System.exit(rcode);
+	}
 }
