@@ -11,6 +11,8 @@
 
 package ornl.pico.io;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -64,7 +66,32 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
 
         return Arrays.equals(magic, PicoStructure.MAGIC);
     }
-    
+
+    /**
+     * Decode the input pico bytes by blocks using a stream to stream transfer
+     * and return the decoded bytes as an InputStream to use in a file parser.
+     * 
+     * @param picobytes the raw pico file bytes.
+     * @return a new ByteArrayInputStream that can be fed to a parser.
+     * @throws IOException
+     * @throws PicoException
+     */
+    public static byte[] decode(byte[] picobytes) throws IOException, PicoException {
+        // 10k buffer;
+        byte[] buffer = new byte[10 * 2 ^ 10];
+        PicoInputStream pis = new PicoInputStream(new ByteArrayInputStream(picobytes));
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+        int n = -1;
+
+        // decode the pico file in blocks.
+        while ((n = pis.read(buffer)) > 0) {
+            baos.write(buffer, 0, n);
+        }
+
+        return baos.toByteArray();
+    }
+
     /**
      * Create or replace a Pico file. If the file exists it will be replaced. If
      * it does not exist it is created. A random key is used.
@@ -492,12 +519,12 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
     public void close() throws IOException {
         if (!_open)
             return;
-        
+
         // We only need to execute the finish method if we are writing.
         if (mode.contains("w")) {
             finish();
         }
-        
+
         _open = false;
         _backing.close();
     }
