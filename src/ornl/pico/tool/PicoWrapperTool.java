@@ -1,433 +1,260 @@
 package ornl.pico.tool;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collection;
 
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.GnuParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.OptionBuilder;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.filefilter.IOFileFilter;
 import org.apache.commons.io.filefilter.MagicNumberFileFilter;
 import org.apache.commons.io.filefilter.NotFileFilter;
 import org.apache.commons.io.filefilter.TrueFileFilter;
-import org.apache.log4j.Logger;
+import org.apache.commons.io.output.ByteArrayOutputStream;
 
+import ornl.pico.PicoException;
+import ornl.pico.io.PicoFile;
 import ornl.pico.io.PicoInputStream;
 import ornl.pico.io.PicoOutputStream;
 import ornl.pico.io.PicoStructure;
 
+
 /**
- * A tool that manipulates pico files.
- * 
- * This tool performs two basic functions: It uses the pico library to unwrap
- * and wrap one or more files.
- * 
- * Source file(s) can either be found in a directory tree or a single file can
- * be specified; in the case of a directory, the search can be performed
- * recursively.
- * 
- * When wrapping, any file that does NOT have the pico magic string will be
- * wrapped. When unwrapping, any file that has the pico magic string will be
- * unwrapped.
- * 
- * All files, whether wrapped or unwrapped will be placed in the target
- * directory; the the target doesn't exist it will be created. If the target is
- * a file, then the tool will halt.
+ * This tool unzips the file specified and then pico wraps it with the provided
+ * key.
  * 
  * @author jcarter
  * @version $Date$ $Version$
  */
 public class PicoWrapperTool {
 
-    /** Log4J Logger so things are easier to debug with HBase and Hadoop */
-    private static Logger log = Logger.getLogger(PicoWrapperTool.class);
+	// /////////////////////////////////////////////////////////////////////////////
+	// Class fields.
+	// /////////////////////////////////////////////////////////////////////////////
 
-    /** Default transfer buffer size */
-    private static int buffer_size = 10 * 2 ^ 10;
+	/** Size in bytes of the buffer. */
+	private static int buffer_size = 10 * 2 ^ 10;
 
-    /** File to file transfer buffer; instances can reuse this. */
-    private byte[] buffer = new byte[buffer_size];
+	/** File to file transfer buffer; instances can reuse this. */
+	private static byte[] buffer = new byte[buffer_size];
 
-    /** The parsed command line */
-    private Options options;
+	// /////////////////////////////////////////////////////////////////////////////
+	// Class methods.
+	// /////////////////////////////////////////////////////////////////////////////
 
-    /** The extension to use for the target files */
-    private String extension;
+	public static void usage() {
+		System.err
+				.println("Usage: java -jar PicoWrapperTool.jar [-catalog|-unwrap|-wrap] <infile> <outfile> [keystring] [password]");
+		System.exit(1);
+	}
 
-    /**
-     * Flag that indicates the extension of a wrapped file should be removed;
-     * this flag has no function during wrapping.
-     */
-    private boolean removeext = false;
+	/**
+	 * 
+	 * @param is
+	 * @param os
+	 * @return
+	 */
+	private static boolean transfer(InputStream is, OutputStream os) {
+		int n = -1;
+		try {
+			while ((n = is.read(buffer)) > 0) {
+				os.write(buffer, 0, n);
+			}
 
-    /** The pico encoding key, if wrapping */
-    private byte[] key;
+			is.close();
+			os.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+			return false;
+		}
+		return true;
+	}
 
-    /** true if unwrapping, false otherwise */
-    private boolean unwrap;
+	/**
+	 * Explicitly set the size of the r/w buffer.
+	 * 
+	 * @param size
+	 */
+	public static void setBufferSize(int size) {
+		buffer_size = size;
+		buffer = new byte[buffer_size];
+	}
 
-    /** source file or directory */
-    private File source;
+	public static boolean wrap(String unwrappedfile, String wrappedfile,
+			byte[] key) {
+		return wrap(new File(unwrappedfile), new File(wrappedfile), key);
+	}
 
-    /** target directory, not a file */
-    private File target;
+	public static boolean unwrap(String wrappedfile, String unwrappedfile) {
+		return unwrap(new File(wrappedfile), new File(unwrappedfile));
+	}
 
-    /** true if this is a recursive operation either unwrap or wrap */
-    private boolean recursive;
+	/**
+	 * Pico wrap the infile to an outfile.
+	 * 
+	 * @param key
+	 *            the Pico wrap key.
+	 * @return true on success; false on failure.
+	 */
+	public static boolean wrap(File unwrappedfile, File wrappedfile, byte[] key) {
 
-    /** exit code of the tool */
-    private int exitcode;
+		boolean result = false;
 
-    /**
-     * Construct the tool by building the command line.
-     */
-    public PicoWrapperTool() {
-        options = buildCommandLine();
-    }
+		try {
 
-    /**
-     * Parse the command line into the properties of the tool instance. Only one
-     * argument may be specified. The target must be a directory or a directory
-     * that can be created. One of -w or -u must be specified.
-     * 
-     * @param args
-     * @throws ParseException
-     * @throws IOException
-     */
-    public void parse(String[] args) throws ParseException, IOException {
-        // Build the command line and parser the commands.
-        CommandLine commandline = new GnuParser().parse(options, args);
+			PicoOutputStream pos = new PicoOutputStream(key,
+					new FileOutputStream(wrappedfile));
+			FileInputStream fis = new FileInputStream(unwrappedfile);
+			result = transfer(fis, pos);
 
-        // Only one argument is required: the extension / encoding key argument.
-        if ((commandline.getArgs().length != 1)) {
-            throw new ParseException("The command line specified is incorrect.");
-        }
+		} catch (Exception e) {
+			System.err.println(e.getMessage());
+		}
+		return result;
+	}
 
-        extension = commandline.getArgs()[0];
-        source = new File(commandline.getOptionValue('s'));
-        target = new File(commandline.getOptionValue('t'));
-        recursive = commandline.hasOption('r');
+	/**
+	 * Unwrap a Pico encoded file when called with the file name
+	 * 
+	 * @param fileName
+	 * @return byte array
+	 */
+	public static byte[] Pico_File(String fileName) {
 
-        log.trace("The source: " + source.getCanonicalPath());
-        log.trace("The target directory: " + target.getCanonicalPath());
+		File file = new File(fileName);
+		byte[] B = new byte[(int) (file.length())];
+		try {
+			PicoInputStream pis = new PicoInputStream(new FileInputStream(file));
+			B = IOUtils.toByteArray(pis);
+		} catch (Throwable t) {
+			System.err.println(t.getMessage());
+		}
+		return B;
+	}
 
-        // Have to designate either unwrap or wrap.
-        if (commandline.hasOption('u')) {
-            unwrap = true;
-            removeext = extension.toLowerCase().equals("remove");
-        } else if (commandline.hasOption('w')) {
-            unwrap = false;
-            key = extension.getBytes();
-            log.trace("Wrap Key (used as bytes): " + extension);
-            extension = "pico";
-        } else {
-            throw new ParseException("The command line specified is incorrect.");
-        }
-        log.trace("Target Extension: " + extension);
+	/**
+	 * Unwrap a Pico encoded file when called file as a byte array
+	 * 
+	 * @param byte array
+	 * @return byte array
+	 */
+	public static byte[] Pico_File(byte[] sourceFile) {
 
-        // If this is an existing file, halt the program.
-        if (target.exists() && !target.isDirectory()) {
-            log.error("The target: " + target.getCanonicalPath() + " is not a directory");
-            throw new ParseException(
-                    "The target is not a directory; only a directory can be specified.");
-        } else {
-            
-            if (!target.exists()) {
-                target.mkdir();
-            }
-        }
-    }
+		try {
+			PicoInputStream pis = new PicoInputStream(new ByteArrayInputStream(
+					sourceFile));
+			sourceFile = IOUtils.toByteArray(pis);
+		} catch (Throwable t) {
+			System.err.println(t.getMessage());
+		}
+		return sourceFile;
+	}
 
-    /**
-     * Build and return the command line options. The following options are
-     * available.
-     * 
-     * --recursive|-r recursively search for source files. No function with
-     * single files.
-     * 
-     * One of the following must be specified:
-     * 
-     * --unwrap|-u unwrap source files. --wrap|-w wrap source files.
-     * 
-     * --source|-s the root location of the source file(s). This can either be a
-     * file or a directory.
-     * 
-     * --target|-t the target directory; this must be a directory. All files
-     * will be put here when finished.
-     * 
-     * A single argument is required. It is a key for encoding when wrapping and
-     * an extension when unwrapping. If unwrapping and the extension is REMOVE
-     * the existing extension will be removed.
-     * 
-     * 
-     * @return the command line Options.
-     */
-    @SuppressWarnings("static-access")
-    private Options buildCommandLine() {
+	/**
+	 * Unwrap a Pico encoded file.
+	 * 
+	 * @return true on success; false on failure.
+	 * @throws IOException
+	 * @throws PicoException
+	 * @throws FileNotFoundException
+	 */
+	public static boolean unwrap(File wrappedfile, File unwrappedfile) {
 
-        // Command line build.
-        Options options = new Options();
-        Option opt;
+		boolean result = false;
 
-        opt = OptionBuilder.withArgName("recursive")
-                .withDescription("recursively search from the source directory.").create('r');
-        options.addOption(opt);
+		try {
 
-        opt = OptionBuilder.withArgName("unwrap").withDescription("unwrap files.").create('u');
-        options.addOption(opt);
+			PicoInputStream pis = new PicoInputStream(new FileInputStream(
+					wrappedfile));
+			FileOutputStream fos = new FileOutputStream(unwrappedfile);
+			result = transfer(pis, fos);
 
-        opt = OptionBuilder.withArgName("wrap").withDescription("wrap files.").create('w');
-        options.addOption(opt);
+		} catch (Exception e) {
+			System.err.println(e.getMessage());
+		}
 
-        opt = OptionBuilder.withArgName("source").hasArg().isRequired()
-                .withDescription("The location of the file(s) to process.").create('s');
-        options.addOption(opt);
+		return result;
+	}
 
-        opt = OptionBuilder.withArgName("target").hasArg().isRequired()
-                .withDescription("The location where the processed file(s) will be written.")
-                .create('t');
-        options.addOption(opt);
+	/**
+	 * Search through the specified directory structure and either Pico wrap the
+	 * files or unwrap the Pico files.
+	 * 
+	 * $ tool -unwrap|-wrap <root directory> <extension for unwrapped files|key
+	 * for wrapped files> <buffersize>
+	 * 
+	 * @param args
+	 * @throws IOException
+	 */
+	public static void main(String[] args) throws IOException {
 
-        return options;
-    }
+		int rcode = 0;
 
-    /**
-     * Perform the specified operations.
-     * 
-     * @throws IOException
-     */
-    public void run() {
+		// use a zip stream into a pico output stream.
 
-        boolean current, status = true;
+		// -unwrap pico file infile to file outfile -- no keystring needed.
+		// -wrap file infile to pico file outfile using keystring.
+		// -catalog catalog infile line by line. unzip, wrap, and dump into
+		// outfile base
+		// directory using keystring.
 
-        // Assume we are unwrapping and unwrapping ONLY Pico files.
-        IOFileFilter filefilter = new MagicNumberFileFilter(PicoStructure.MAGIC);
+		if (args.length < 3 || args.length > 4) {
+			usage();
+		}
 
-        // If we are unwrapping adjust the filter so we wrap everything besides
-        // pico files.
-        if (!unwrap) {
-            filefilter = new NotFileFilter(filefilter);
-        }
+		String command = args[0];
+		File directory = new File(args[1]);
+		String ext_or_key = args[2];
+		if (args.length == 4) {
+			setBufferSize(Integer.parseInt(args[3]));
+		}
 
-        // Is our source a collection of files in a directory structure?
-        if (source.isDirectory()) {
+		// Assume we are unwrapping and will look for Pico files.
+		IOFileFilter ff = new MagicNumberFileFilter(PicoStructure.MAGIC);
 
-            log.trace("Running... with source as directory.");
+		// If we are wrapping instead negate the filter.
+		if ("-wrap".equals(command)) {
+			ff = new NotFileFilter(ff);
+		}
 
-            // Get all files that match the filter either in this directory
-            // or recursively.
-            Collection<File> sourcefiles = FileUtils.listFiles(source, filefilter,
-                    recursive ? TrueFileFilter.INSTANCE : null);
+		// Grab all the files starting at root that match the File Filter;
+		// recursively traverse the directories.
+		Collection<File> files = FileUtils.listFiles(directory, ff,
+				TrueFileFilter.TRUE);
 
-            for (File sourcefile : sourcefiles) {
-                log.trace("Processing file: " + sourcefile.getName());
-                try {
+		if ("-unwrap".equalsIgnoreCase(command)) {
+			for (File fin : files) {
+				try {
+					// Checks the pico file header; we use the streams to
+					// unwrap.
+					PicoFile.open(fin);
+					String fout = fin.getCanonicalPath() + "." + ext_or_key;
+					rcode = unwrap(fin.getCanonicalPath(), fout) ? 0 : 1;
+				} catch (PicoException pe) {
+					// There was a problem with the file structure.
+					System.err.printf(
+							"The file: %s is probably not a pico file.\n",
+							fin.getName());
+					continue;
+				}
+			}
 
-                    if (unwrap) {
-                        current = unwrap(sourcefile, new File(buildTargetFileName(sourcefile)));
-                        log.trace("Unwrap Status: " + current);
-                        status &= current;
-                    } else {
-                        current = wrap(sourcefile, new File(buildTargetFileName(sourcefile)));
-                        log.trace("Wrap Status: " + current);
-                        status &= current;
-                    }
+		} else if ("-wrap".equalsIgnoreCase(command)) {
+			for (File fin : files) {
+				String fout = fin.getCanonicalPath() + ".pico";
+				rcode = wrap(fin.getCanonicalPath(), fout,
+						ext_or_key.getBytes()) ? 0 : 1;
+			}
+		} else {
+			usage();
+		}
 
-                } catch (IOException e) {
-                    // There was a problem with the file structure.
-                    log.warn("Problem developing the target file name.", e);
-                    status = false;
-                }
-            }
-
-        } else {
-
-            log.trace("Running... with source as file.");
-
-            try {
-                if (unwrap) {
-                    status = unwrap(source, new File(buildTargetFileName(source)));
-                    log.trace("Unwrap Status: " + status);
-                } else {
-                    status = wrap(source, new File(buildTargetFileName(source)));
-                    log.trace("Wrap Status: " + status);
-                }
-            } catch (IOException e) {
-                // There was a problem with the file structure.
-                log.warn("Problem developing the target file name.", e);
-                status = false;
-            }
-        }
-        exitcode = status ? 0 : 1;
-        log.trace("Operation overall status: " + status);
-    }
-
-    /**
-     * Build a canonical filename. This takes into account the options the user
-     * specified. Whether or not to use an extension, etc.
-     * 
-     * @param name
-     * @return
-     * @throws IOException
-     */
-    private String buildTargetFileName(File file) throws IOException {
-
-        String name = file.getName();
-
-        // Are we unwrapping and removing the extension, usually .pico.
-        if (removeext) {
-            int periodindex = name.lastIndexOf('.');
-            if (periodindex > 0) {
-                name = name.substring(0, periodindex);
-            }
-
-        } else {
-            name += "." + extension;
-        }
-
-        // Use the canonical path with the new name.
-        return target.getCanonicalPath() + "/" + name;
-    }
-
-    /**
-     * Transfer bytes from one stream to another; this can either be from a pico
-     * stream to a file string or vice versa. Both streams are closed on exit
-     * and the total number of bytes transferred is returned.
-     * 
-     * @param is
-     * @param os
-     * @return the total number of bytes transferred.
-     */
-    private int transfer(InputStream is, OutputStream os) throws IOException {
-
-        int n = -1;
-        int total = 0;
-
-        while ((n = is.read(buffer)) > 0) {
-            os.write(buffer, 0, n);
-            total += n;
-        }
-
-        is.close();
-        os.close();
-        return total;
-    }
-
-    /**
-     * Explicitly set the size of the r/w buffer.
-     * 
-     * @param size
-     */
-    public void setBufferSize(int size) {
-        buffer_size = size;
-        buffer = new byte[buffer_size];
-    }
-
-    /**
-     * Pico wrap the infile to an outfile.
-     * 
-     * @param unwrappedfile the file that is being wrapped.
-     * @param wrappedfile the file that is being created.
-     * @return true on success; false on failure.
-     */
-    public boolean wrap(File unwrappedfile, File wrappedfile) {
-
-        try {
-
-            PicoOutputStream pos = new PicoOutputStream(key, new FileOutputStream(wrappedfile));
-            FileInputStream fis = new FileInputStream(unwrappedfile);
-            int total = transfer(fis, pos);
-            log.info("Transferred " + total + " bytes");
-
-        } catch (Exception e) {
-            log.error("IO problem during unwrapping", e);
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Unwrap a pico file.
-     * 
-     * @param wrappedfile the file that is being unwrapped.
-     * @param unwrappedfile the file that is being created.
-     * @return true on success; false on failure.
-     */
-    public boolean unwrap(File wrappedfile, File unwrappedfile) {
-
-        try {
-
-            PicoInputStream pis = new PicoInputStream(new FileInputStream(wrappedfile));
-            FileOutputStream fos = new FileOutputStream(unwrappedfile);
-            int total = transfer(pis, fos);
-            log.info("Transferred " + total + " bytes");
-
-        } catch (Exception e) {
-            log.error("IO problem during unwrapping", e);
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Build the tool and run the application according the specified
-     * parameters.
-     * 
-     * $ java -Dlog4j.configuration=log4j.picotool.properties -jar pico.jar
-     * <options> <argument>
-     * 
-     * The following options are available.
-     * 
-     * --recursive|-r recursively search for source files. No function with
-     * single files.
-     * 
-     * One of the following must be specified:
-     * 
-     * --unwrap|-u unwrap source files. --wrap|-w wrap source files.
-     * 
-     * --source|-s the root location of the source file(s). This can either be a
-     * file or a directory.
-     * 
-     * --target|-t the target directory; this must be a directory. All files
-     * will be put here when finished.
-     * 
-     * A single argument is required. It is a key for encoding when wrapping and
-     * an extension when unwrapping. If unwrapping and the extension is REMOVE
-     * the existing extension will be removed.
-     * 
-     * @param args the command line arguments.
-     * @throws IOException
-     */
-    public static void main(String[] args) throws IOException {
-
-        PicoWrapperTool tool = new PicoWrapperTool();
-
-        try {
-
-            tool.parse(args);
-            log.trace("Finished Parsing Arguments.");
-            tool.run();
-            log.trace("Finished Running Tool.");
-            System.exit(tool.exitcode);
-
-        } catch (ParseException e) {
-            log.warn("User command line specification incorrect.");
-            HelpFormatter hformatter = new HelpFormatter();
-            hformatter
-                    .printHelp(
-                            "java -Dlog4j.configuration=log4j.picotool.properties -jar pico.jar <options> <extension|key>",
-                            tool.options);
-            System.exit(1);
-        }
-    }
+		System.exit(rcode);
+	}
 }

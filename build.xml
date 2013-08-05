@@ -174,24 +174,16 @@ All rights reserved.
 		<mkdir dir="${build.base}/${DSTAMP}" />
 		<jar filesetmanifest="skip" destfile="${build.latest}/${build.jar}">
 			<fileset dir="${build.bin}" />
-            <fileset dir="${build.src}">
-                <include name="log4j.picotool.properties" />
-            </fileset>
 			<zipgroupfileset dir="${build.lib}" includes="**/*.jar" />
 			<manifest>
 				<attribute name="Build-Date" value="${DSTAMP}" />
-<!--				<attribute name="Main-Class" value="ornl.pico.Main" /> -->
-                <!-- Contains the main method to launch the parser. -->
-                <attribute name="Main-Class" value="ornl.pico.tool.PicoWrapperTool" />
-                <attribute name="Class-Path" value="./ornl/pico/tool" />
+				<attribute name="Main-Class" value="ornl.pico.Main" />
 			</manifest>
 		</jar>
 		<jar destfile="${build.base}/${DSTAMP}/pico-src.jar">
 			<fileset dir="${build.src}" />
 			<manifest>
 				<attribute name="Build-Date" value="${DSTAMP}" />
-
-				
 			</manifest>
 		</jar>
 		<copy file="${build.latest}/${build.jar}" todir="${build.base}/${DSTAMP}" />

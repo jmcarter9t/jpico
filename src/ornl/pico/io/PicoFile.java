@@ -210,28 +210,17 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
         }
         return new PicoFile(new RandomAccessFile(file, "rw"));
     }
-
-    /**
-     * 
-     * @param file
-     * @param mode
-     * @return
-     * @throws PicoException
-     * @throws IOException
-     */
-    public static PicoFile open(File file, String mode) throws PicoException, IOException {
+    
+    public static PicoFile open(File file, String method) throws PicoException, IOException {
         if (file == null) {
             throw new NullPointerException("The file is null.");
         }
 
-        if (!(mode.equals("rw") || mode.equals("r") || mode.equals("w"))) {
-            throw new PicoException("The method: " + mode
-                    + " of working with a file cannot be used.");
+        if (!(method.equals("rw") || method.equals("r") || method.equals("w"))) {
+            throw new PicoException("The method: " + method + " of working with a file cannot be used.");
         }
-
-        PicoFile pf = new PicoFile(new RandomAccessFile(file, mode));
-        pf.mode = mode;
-        return pf;
+        
+        return new PicoFile(new RandomAccessFile(file, method), method);
     }
 
     // ======================================================================
@@ -255,8 +244,9 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
 
     /** The message digest to use to compute the hash. */
     private MessageDigest _digest;
-
-    private String mode = "rw";
+    
+    /** The access mode for the file. */
+    private String mode;
 
     // ======================================================================
     // Constructors.
@@ -277,6 +267,24 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
         _open = true;
         _resetDigest();
         _readHeader();
+        mode = "r";
+        position(0L);
+    }
+    
+    /**
+     * Open an existing Pico encoded file.
+     * 
+     * @param backing The random access file.
+     * @throws PicoException The file format is incorrect.
+     * @throws IOException The file cannot be read.
+     */
+    protected PicoFile(RandomAccessFile backing, String mode) throws PicoException, IOException {
+        assert backing != null : "Backing is null.";
+        _backing = backing;
+        _open = true;
+        _resetDigest();
+        _readHeader();
+        this.mode = mode;
         position(0L);
     }
 
@@ -428,28 +436,33 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
     }
 
     /**
-     * Return the magic number (first 10 bytes) of the unencoded (original)
-     * file.
+     * Predicates that indicates the original magic number of this pico file
+     * matches the magic (byte array) provided. The magic number is used as a
+     * quick means to verify a file's type.
      * 
-     * @return the first 10 bytes (magic number) of the unwrapped file.
+     * @param magic the magic number to verify.
+     * @return true if this file's initial bytes match the array of bytes
+     *         provided.
      */
-    public byte[] getMagic() throws IOException {
-        // cache the current position in the file so we can return to it.
-        long pos = _backing.getFilePointer();
-
-        // Reposition the original file to byte 0 to prepare to read the magic
-        // number.
-        position(0L);
-
-        // Attempt to read up to 10 bytes.
-        ByteBuffer magic_buffer = ByteBuffer.allocate(10);
-        int num = read(magic_buffer);
-
-        // return the pico file to its position prior to the call to getMagic()
-        _backing.seek(pos);
-
-        // return a copy of the amount read up to 10 bytes.
-        return (Arrays.copyOf(magic_buffer.array(), num));
+    public byte[] getMagic() {
+        byte[] magic = null;
+        long pos = 0;
+        try {
+            // cache the current position in the file so we can return to it.
+            pos = _backing.getFilePointer();
+            // Position to the 0 byte of the actual file.
+            position(0L);
+            ByteBuffer magic_buffer = ByteBuffer.allocate(2);
+            int num = read(magic_buffer);
+            if (num == 2) {
+                // successful read of the 2 bytes.
+                _backing.seek(pos);
+                magic = magic_buffer.array();
+            }
+        } catch (IOException e1) {
+            e1.printStackTrace();
+        }
+        return magic;
     }
 
     /*
@@ -651,36 +664,30 @@ public class PicoFile implements WritableByteChannel, ReadableByteChannel, Seeka
         return val;
     }
 
-    /**
-     * Return the original file bytes that back this PicoFile.
-     * 
-     * @return the original file bytes in an array.
-     * 
-     * @throws IOException
-     */
-    public byte[] getBackingBytes() throws IOException {
-
+    public ByteBuffer readBacking() throws IOException {
         if (!_open) {
             return null;
         }
 
-        int bytesread;
+        ByteBuffer dst = ByteBuffer.allocate((int) _backing.length());
+
+        int length;
 
         // 4K buffer.
-        final byte[] buf = new byte[4 * (2 ^ 10)];
-
-        ByteBuffer backingbuffer = ByteBuffer.allocate((int) _backing.length());
+        byte[] buf = new byte[4 * (2 ^ 10)];
 
         _backing.seek(0);
-
-        while ((bytesread = _backing.read(buf)) > 0) {
+        
+        // Read up to 4K blocks from the backing file
+        while ((length = _backing.read(buf)) > 0) {
             try {
-                backingbuffer.put(buf, 0, bytesread);
+                // store the block of the correct size into the ByteBuffer.
+                dst.put(buf, 0, length);
             } catch (BufferOverflowException e) {
                 return null;
             }
         }
-        return backingbuffer.array();
+        return dst;
     }
 
     // ======================================================================
